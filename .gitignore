@@ -1,0 +1,9 @@
+dejong
+dejong.exe
+lib/*.*
+*~
+*.o
+*.o.s
+stdout.txt
+stderr.txt
+SDL.dll
