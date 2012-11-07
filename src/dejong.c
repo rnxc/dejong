@@ -23,6 +23,9 @@ static double sensitivity = 0.02;
 static Uint16 mouseX;
 static Uint16 mouseY;
 
+/* fun stuff */
+static bool animating = 0;
+
 /* global states for multithreading */
 static Uint32 completion = 0;
 static bool invalidated = 0;
@@ -71,15 +74,22 @@ typedef struct {
 static void *dejong_density_thread(void *args) {
   pthread_t *density_threads = (pthread_t *)malloc(NUM_THREADS * sizeof(pthread_t));
 
+  Uint32 loop_top;
+  double r = 0, th = 0, a = 0, b = 0;
+  double x = SCREEN_WIDTH / 2.0;
+  double y = SCREEN_HEIGHT / 2.0;
   while(true) {
-    double a, b;
-    double x = SCREEN_WIDTH / 2.0;
-    double y = SCREEN_HEIGHT / 2.0;
-    a = ((double)mouseX * 2 / SCREEN_WIDTH - 1) * sensitivity;
-    b = ((double)mouseY * 2 / SCREEN_WIDTH - 1) * sensitivity;
+    loop_top = SDL_GetTicks();
+    if (animating) {
+      a = r * cos(th);
+      b = r * sin(th);
+    } else {
+      a = ((double)mouseX * 2 / SCREEN_WIDTH - 1) * sensitivity;
+      b = ((double)mouseY * 2 / SCREEN_WIDTH - 1) * sensitivity;
+    }
     sprintf(dejong_vars, "a=%0.6f, b=%0.6f", a, b);
 
-    while (frame_lock) usleep(25);
+    while (frame_lock) usleep(5);
     memset(density, 0, sizeof(short) * SCREEN_WIDTH * SCREEN_HEIGHT * NUM_THREADS);
     completion = 0;
     invalidated = 0;
@@ -100,10 +110,21 @@ static void *dejong_density_thread(void *args) {
       thread_args->thread = i;
       pthread_create(&density_threads[i], NULL, dejong_density_loop, thread_args);
     }
-    for (int i = 0; i < NUM_THREADS; ++i) {
-      pthread_join(density_threads[i], NULL);
+    r = sqrt(a * a + b * b);
+    th = atan2(b, a);
+    if (animating) {
+      while (SDL_GetTicks() - loop_top < 125) usleep(5);
+      invalidated = 1;
+      th += sigma * 50;
+      for (int i = 0; i < NUM_THREADS; ++i) {
+        pthread_join(density_threads[i], NULL);
+      }
+    } else {
+      for (int i = 0; i < NUM_THREADS; ++i) {
+        pthread_join(density_threads[i], NULL);
+      }
+      while (!invalidated) usleep(125);
     }
-    while (!invalidated) usleep(125);
   }
   return NULL;
 }
@@ -121,7 +142,9 @@ static void *dejong_density_loop(void *args) {
   while (true) {
     if ((completion = SDL_GetTicks() - start_time) > 33 && invalidated) break;
     if (max_density[n] >= 32767) {
-      printf("[-----]Thread %d completed in %dms\n", n, completion);
+      if (completion > 100) {
+        printf("[-----]Thread %d completed in %dms\n", n, completion);
+      }
       break;
     }
     /* A nice example of how SIN/COSPD would be a good thing */
@@ -163,6 +186,11 @@ void dejong_event(SDL_Event event) {
     }
     if (event.key.keysym.sym == SDLK_RIGHT) {
       sensitivity *= 1.03;
+      invalidated = 1;
+    }
+    /* a toggles animating */
+    if (event.key.keysym.sym == SDLK_a) {
+      animating = !animating;
       invalidated = 1;
     }
     break;
